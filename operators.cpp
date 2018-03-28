@@ -7,10 +7,16 @@ mat covariance(const mat A, const mat B, float (*Kernel)(mat A, mat B)){
     // the inputs all have the shape of (samples, features)
     int A_samples = A.n_rows;
     int B_samples = B.n_rows;
+    double noise = 0;
     mat C = zeros<mat>(A_samples, B_samples);
     for(int i=0; i<A_samples; i++){
         for(int j=0; j<B_samples; j++){
-            C(i, j) = Kernel(A.row(i), B.row(j));
+            if(i==j){
+                noise=8.6;
+            }else{
+                noise=0;
+            }
+            C(i, j) = Kernel(A.row(i), B.row(j))+noise*noise;
         }
     }
     return(C);
