@@ -16,7 +16,7 @@
 
 float Kernel(mat M1, mat M2){
     // M1 and M2 are row vectors
-    return(exp(-0.5*norm(M1-M2, 2)));
+    return(32*exp(-1/0.0006*norm(M1-M2, 2)));
 }
 
 void master(mat S, int* pred, int* partition, float (*Kernel)(mat M1, mat M2))
@@ -154,12 +154,12 @@ void slave(mat S, mat D, mat yD, mat U, float (*Kernel)(mat M1, mat M2))
             DD = covariance(D, D, Kernel);
             DS = covariance(D, S, Kernel);
             SS = covariance(S, S, Kernel);
-            inv_DD_S = pinv(DD-DS*pinv(SS)*SD);
+            inv_DD_S = inv(DD-DS*inv(SS)*SD);
             local_M = SD*inv_DD_S*yD;
             local_C = SD*inv_DD_S*DS;
 
-            // cout<<"local mean:\n"<<local_M<<endl;
-            cout<<"SD*inv(DD_S):\n"<<SD*inv_DD_S*yD<<endl;
+            // cout<<"local mean:\n"<<SD<<endl;
+            // cout<<"SD*inv(DD_S):\n"<<SD*inv_DD_S<<endl;
 
             cout<<"Rows of local mean: "<<local_M.n_rows<<endl;
             // cout<<"Local mean:\n"<<local_M<<endl;
