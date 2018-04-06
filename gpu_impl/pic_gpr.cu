@@ -5,6 +5,7 @@
 
 // CUDA runtime
 #include <cuda_runtime.h>
+#include "cublas.h"
 
 #include <math.h>
 #include <string.h>
@@ -14,15 +15,21 @@
 #define CARD_SUPPORT_SET 20
 
 // kernel function
-float Kernel(mat M1, mat M2){
-    // M1 and M2 are row vectors
-    return(32*exp(-1/0.0006*norm(M1-M2, 2)));
+__device__ void Kernel(float *M1, float *M2, int size){
+    float *out;
+    cudaMalloc((void **)&out, size);
+
+    cublasHandle_t handle;
+    cublasCreate(&handle);
+
+    cublasSnrm2(handle, size, *M1-*M2, 1, out);
+    *out = expf(-1/0.0006*(*out));
+    *out = (32*(*out));
+    return out;
 }
 
 // covariance function
-__global__ void cov(mat *A, mat *B, mat *out, float (*Kernel)(mat A, mat B)){
-    int A_samples = A[blockIdx.x].n_rows;
-    int B_samples = B[blockIdx.x].n_rows;
+__global__ void cov(float *A, int size_a, float *B, int size_b, float *out, float (*Kernel)(float *M1, float *M2, int size)) {
     double noise = 0;
     out[blockIdx.x] = zeros<mat>(A_samples, B_samples);
     for(int i=0; i<A_samples; i++){
@@ -37,16 +44,21 @@ __global__ void cov(mat *A, mat *B, mat *out, float (*Kernel)(mat A, mat B)){
     }
 }
 
+__device__ float inv(float *a){
+    return a;
+}
+
 // to compute local summary
-__global__ void slave_local(mat* S, mat *D, mat *yD, mat *U, mat *local_M, mat *local_C, float (*Kernel)(mat M1, mat M2)) {
+__global__ void slave_local(float *S, float *D, float *yD, float *U, float *local_M, float *local_C, float (*Kernel)(float *M1, float *M2, int size)) {
     int samples = S.n_rows;
-    __shared__ mat SD, DD, DS, SS, inv_DD_S;
+    __shared__ float *SD, *DD, *DS, *SS, *inv_DD_S;
 
     mat global_M = zeros<mat>(samples, 1);
     mat global_C = zeros<mat>(samples, samples);
 
-    mat *a, *b, *out;
-    mat *d_a, *d_b, *d_out;
+    float * global_m = new float [samples];
+    float *a, *b, *out;
+    float *d_a, *d_b, *d_out;
 
     int s = 4 * sizeof(mat);
 
@@ -92,8 +104,8 @@ __global__ void slave_local(mat* S, mat *D, mat *yD, mat *U, mat *local_M, mat *
 }
 
 // to calculate for global summary
-__global__ void slave_global(mat *S, mat *D, mat *yD, mat *U, mat *local_C, mat *global_C, mat *global_M, double *d_pred_M, float (*Kernel)(mat M1, mat M2)) {
-    extern __shared__ mat SD, DD, DS, SS, inv_DD_S;
+__global__ void slave_global(float *S, float *D, float *yD, float *U, float *local_C, float *global_C, float *global_M, float *d_pred_M, float (*Kernel)(float *M1, float *M2, int size)) {
+    extern __shared__ float *SD, *DD, *DS, *SS, *inv_DD_S;
     mat *a, *b, *out;
     mat *d_a, *d_b, *d_out;
 
@@ -148,20 +160,20 @@ __global__ void slave_global(mat *S, mat *D, mat *yD, mat *U, mat *local_C, mat 
     }
 }
 
-void master(mat S, int** pred, int* partition, mat train_data, mat train_target, mat test_data, mat test_target, int interval, float (*Kernel)(mat M1, mat M2)) {
+void master(float *S, int** pred, int* partition, float *train_data, float *train_target, float *test_data, float *test_target, int interval, float (*Kernel)(float *M1, float *M2)) {
     int	slaveCount;
     int samples = S.n_rows;
-    mat test_mean, test_covar;
+    float *test_mean, *test_covar;
 
-    mat global_M = zeros<mat>(samples, 1);
-    mat global_C = covariance(S, S, Kernel);
+    float *global_M = zeros<mat>(samples, 1);
+    float *global_C = covariance(S, S, Kernel);
 
-    mat *train_data_arr = new mat [NUM_SLAVES];
-    mat *train_target_arr = new mat [NUM_SLAVES];
-    mat *test_data_arr = new mat [NUM_SLAVES];
+    float **train_data_arr = new mat [NUM_SLAVES];
+    float **train_target_arr = new mat [NUM_SLAVES];
+    float **test_data_arr = new mat [NUM_SLAVES];
 
-    mat *local_M_arr = new mat [NUM_SLAVES];
-    mat *local_C_arr = new mat [NUM_SLAVES];
+    float **local_M_arr = new mat [NUM_SLAVES];
+    float **local_C_arr = new mat [NUM_SLAVES];
 
     cudaStream_t *streams;
     int s = sizeof(mat);
