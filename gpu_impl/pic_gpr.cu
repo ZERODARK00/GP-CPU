@@ -14,8 +14,8 @@
 #define NUM_SLAVES 5
 #define CARD_SUPPORT_SET 20
 
-// kernel function
-__device__ void Kernel(float *M1, float *M2, int size){
+// kernel function, called from cov() function (GPU-GPU)
+__device__ float Kernel(float *M1, float *M2, int size){
     float *out;
     cudaMalloc((void **)&out, size);
 
@@ -28,39 +28,48 @@ __device__ void Kernel(float *M1, float *M2, int size){
     return out;
 }
 
-// covariance function
-__global__ void cov(float *A, int size_a, float *B, int size_b, float *out, float (*Kernel)(float *M1, float *M2, int size)) {
+// covariance function (runs on GPU, called by slaves running on GPU)
+__global__ void cov(float *A, int size_a, float *B, int size_b, float **out, float (*Kernel)(float *M1, float *M2, int size)) {
     double noise = 0;
-    out[blockIdx.x] = zeros<mat>(A_samples, B_samples);
-    for(int i=0; i<A_samples; i++){
-        for(int j=0; j<B_samples; j++){
-            if(i==j){
+    int a = size_a * blockIdx.x;
+    int b = size_b * blockIdx.x;
+
+    for(int i = 0; i < size_a; i++){
+        float *x = new float[size_b];
+        for(int j = 0; j < size_b; j++){
+            if(i == j){
                 noise = 8.6;
             }else{
                 noise = 0;
             }
-            out[blockIdx.x](i, j) = Kernel(A[blockIdx.x].row(i), B[blockIdx.x].row(j)) + noise*noise;
+            x[j] = Kernel(A[a + i], B[b + j], size_b) + noise*noise;
         }
+        out[i] = x;
     }
 }
 
+// inv function (called from slaves (GPU-GPU))
 __device__ float inv(float *a){
     return a;
 }
 
-// to compute local summary
+// pseudo-inv function (called from slaves (GPU-GPU))
+__device__ float pinv(float *a){
+    return a;
+}
+
+// to compute local summary (running on GPU)
 __global__ void slave_local(float *S, float *D, float *yD, float *U, float *local_M, float *local_C, float (*Kernel)(float *M1, float *M2, int size)) {
     int samples = S.n_rows;
     __shared__ float *SD, *DD, *DS, *SS, *inv_DD_S;
 
-    mat global_M = zeros<mat>(samples, 1);
-    mat global_C = zeros<mat>(samples, samples);
+    // host copies
+    float *a, *b, **out;
 
-    float * global_m = new float [samples];
-    float *a, *b, *out;
+    // device copies
     float *d_a, *d_b, *d_out;
 
-    int s = 4 * sizeof(mat);
+    int s = 4 * sizeof(float*);
 
     // Allocate space for device copies
     cudaMalloc((void **)&d_a, s);
@@ -103,13 +112,17 @@ __global__ void slave_local(float *S, float *D, float *yD, float *U, float *loca
     local_C = SD*inv_DD_S*DS;
 }
 
-// to calculate for global summary
-__global__ void slave_global(float *S, float *D, float *yD, float *U, float *local_C, float *global_C, float *global_M, float *d_pred_M, float (*Kernel)(float *M1, float *M2, int size)) {
+// to calculate for global summary (running on GPU)
+__global__ void slave_global(float *S, float *D, float *yD, float *U, float *local_C, float *global_C, float *global_M, float *pred_mean, float (*Kernel)(float *M1, float *M2, int size)) {
     extern __shared__ float *SD, *DD, *DS, *SS, *inv_DD_S;
-    mat *a, *b, *out;
-    mat *d_a, *d_b, *d_out;
 
-    int s = 5 * sizeof(mat);
+    // local copies
+    float *a, *b, *out;
+
+    // device copies
+    float *d_a, *d_b, *d_out;
+
+    int s = 5 * sizeof(float*);
 
     // Allocate space for device copies
     cudaMalloc((void **)&d_a, s);
@@ -134,32 +147,30 @@ __global__ void slave_global(float *S, float *D, float *yD, float *U, float *loc
     cudaMemcpy(d_b, &b, s, cudaMemcpyHostToDevice);
     cudaMemcpy(d_out, &out, s, cudaMemcpyHostToDevice);
 
-    // execute 4 covariance functions in parallel using 4 blocks
+    // execute 5 covariance functions in parallel using 5 blocks
     cov<<<5,1>>>(d_a, d_b, d_out, Kernel);
 
     // copy outputs to host
     cudaMemcpy(out, d_out, s, cudaMemcpyDeviceToHost);
 
-    mat UU = out[0];
-    mat US = out[1];
-    mat SU = out[2];
-    mat UD = out[3];
-    mat DU = out[4];
+    float *UU = out[0];
+    float *US = out[1];
+    float *SU = out[2];
+    float *UD = out[3];
+    float *DU = out[4];
 
     // calculate global summary
-    mat local_US = UD*inv_DD_S*DS;
-    mat local_SU = SD*inv_DD_S*DU;
-    mat local_UU = UD*inv_DD_S*DU;
-    mat Phi_US = US+US*pinv(SS)*local_C-local_US;
-    mat pred_mean = (Phi_US*pinv(global_C)*global_M) + UD*inv_DD_S*yD;
-    mat pred_covar = UU-(Phi_US*pinv(SS)*SU-US*pinv(SS)*local_SU-Phi_US*pinv(global_C)*trans(Phi_US))-local_UU;
+    float *local_US = UD*inv_DD_S*DS;
+    float *local_SU = SD*inv_DD_S*DU;
+    float *local_UU = UD*inv_DD_S*DU;
+    float *Phi_US = US+US*pinv(SS)*local_C-local_US;
+    float *pred_mean = (Phi_US*pinv(global_C)*global_M) + UD*inv_DD_S*yD;
+    float *pred_covar = UU-(Phi_US*pinv(SS)*SU-US*pinv(SS)*local_SU-Phi_US*pinv(global_C)*trans(Phi_US))-local_UU;
 
-    // compute predictions
-    for(int i=0; i < pred_mean.n_elem;i++){
-        d_pred_M[i] = pred_mean(i,0);
-    }
+    // predictions stored in pred_mean
 }
 
+// master runs on CPU
 void master(float *S, int** pred, int* partition, float *train_data, float *train_target, float *test_data, float *test_target, int interval, float (*Kernel)(float *M1, float *M2)) {
     int	slaveCount;
     int samples = S.n_rows;
@@ -276,6 +287,7 @@ void master(float *S, int** pred, int* partition, float *train_data, float *trai
     cout<<"Done"<<endl;
 }
 
+// main runs on CPU
 int main(int argc, char *argv[]){
     // load data from csv file
     std::string path = "data.csv";
