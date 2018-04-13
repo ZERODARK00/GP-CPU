@@ -3,7 +3,7 @@
 #include <stdlib.h>
 #include <time.h>
 
-int N=20;
+int N=10;
 
 void print_matrix(float* array, int n){
     for(int i=0; i<n; i++){
@@ -43,13 +43,14 @@ int main(){
     cudaMemcpy(devM1, M1, N * N * sizeof(float), cudaMemcpyHostToDevice);
     cudaMemcpy(devM2, M2, N * N * sizeof(float), cudaMemcpyHostToDevice);
 
-    cov<<<50, 50>>>(handle, devM1, devM2, devOut);
+    cov<<<1, N>>>(handle, devM1, devM2, N, devOut);
+    cudaDeviceSynchronize();
     cudaMemcpy(Out, devOut, N * N * sizeof(float), cudaMemcpyDeviceToHost);
 
-    // printf("Here is matrix 1:\n");
-    // print_matrix(M1, N);
-    // printf("Here is matrix 2:\n");
-    // print_matrix(M2, N);
+    printf("Here is matrix 1:\n");
+    print_matrix(M1, N);
+    printf("Here is matrix 2:\n");
+    print_matrix(M2, N);
     printf("Here is the out:\n");
     print_matrix(Out, N);
     return 0;
