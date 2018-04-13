@@ -37,15 +37,33 @@ int main(){
 
     // make and copy matrix onto GPU
     float *devM1, *devM2, *devOut;
-    cudaMalloc((void**)&devM1, N*N*sizeof(float));
-    cudaMalloc((void**)&devM2, N*N*sizeof(float));
-    cudaMalloc((void**)&devOut, N*N*sizeof(float));
-    cudaMemcpy(devM1, M1, N * N * sizeof(float), cudaMemcpyHostToDevice);
-    cudaMemcpy(devM2, M2, N * N * sizeof(float), cudaMemcpyHostToDevice);
+    int *devN;
+    cudaCheckError(cudaMalloc((void**)&devM1, N*N*sizeof(float)));
+    cudaCheckError(cudaMalloc((void**)&devM2, N*N*sizeof(float)));
+    cudaCheckError(cudaMalloc((void**)&devOut, N*N*sizeof(float)));
+    cudaCheckError(cudaMalloc((void**)&devN, sizeof(int)));
+    cudaCheckError(cudaMemcpy(devM1, M1, N * N * sizeof(float), cudaMemcpyHostToDevice));
+    cudaCheckError(cudaMemcpy(devM2, M2, N * N * sizeof(float), cudaMemcpyHostToDevice));
+    cudaCheckError(cudaMemcpy(devN, &N, sizeof(int), cudaMemcpyHostToDevice));
 
-    cov<<<1, N>>>(handle, devM1, devM2, N, devOut);
+    cov<<<1, N>>>(stat, handle, devM1, devM2, *devN, devOut);
     cudaDeviceSynchronize();
-    cudaMemcpy(Out, devOut, N * N * sizeof(float), cudaMemcpyDeviceToHost);
+
+    
+    cudaError_t error = cudaGetLastError();
+    if(error != cudaSuccess)
+    {
+       // print the CUDA error message and exit
+       printf("CUDA error: %s\n", cudaGetErrorString(error));
+       exit(-1);
+    }
+    
+
+    cudaCheckError(cudaMemcpy(Out, devOut, N * N * sizeof(float), cudaMemcpyDeviceToHost));
+    
+    cudaCheckError(cudaFree(devM1));
+    cudaCheckError(cudaFree(devM2));
+    cudaCheckError(cudaFree(devOut));
 
     printf("Here is matrix 1:\n");
     print_matrix(M1, N);
