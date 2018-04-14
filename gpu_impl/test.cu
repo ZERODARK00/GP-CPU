@@ -61,7 +61,7 @@ int main(){
     }
     */
 
-    cudaMemcpy(Out, invOut, N * N * sizeof(float), cudaMemcpyDeviceToHost);
+    cudaMemcpy(Out, devOut, N * N * sizeof(float), cudaMemcpyDeviceToHost);
     
     cudaFree(devM1);
     cudaFree(devM2);
