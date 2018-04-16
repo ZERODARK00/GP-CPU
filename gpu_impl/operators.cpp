@@ -18,13 +18,13 @@ float* matToArray(mat m){
 }
 
 mat parseCsvFile(std::string path, int rows) {
- 
+
     mat data;
     char inputFileName[20];
     strcpy(inputFileName, path.c_str());
     std::ifstream inputFile(inputFileName, std::ifstream::in);
     int l = 0;
- 
+
     while (l < rows) {
         l++;
         std::string s;
@@ -32,13 +32,13 @@ mat parseCsvFile(std::string path, int rows) {
         if (s[0] != '#') {
             std::istringstream ss(s);
              mat record;
- 
+
             while (ss) {
                 std::string line;
                 if (!getline(ss, line, ','))
                     break;
                 try {
-                    mat col = ones<mat>(1,1)* stof(line);
+                    mat col = ones<mat>(1,1)*stof(line);
                     record.insert_cols(0, col);
                 }
                 catch (const std::invalid_argument e) {
@@ -46,10 +46,10 @@ mat parseCsvFile(std::string path, int rows) {
                     record.insert_cols(0, col);
                 }
             }
- 
+
             data.insert_rows(0, record);
         }
     }
- 
+
     return(data);
 }

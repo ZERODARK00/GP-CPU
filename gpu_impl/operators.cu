@@ -27,8 +27,8 @@ __device__ float Kernel(float* V1, float* V2, int N){
 }
 // M1, M2 are square matrix with the same shape and N is the number of rows/columns, Out is the output square matrix of this kernel function with N rows 
 __global__ void cov(float** m1, float** m2, int N, float** out){
-    float *M1 = M1[blockIdx.x];
-    float *M2 = M2[blockIdx.x];
+    float *M1 = m1[blockIdx.x];
+    float *M2 = m2[blockIdx.x];
     float *Out = out[blockIdx.x];
 
     int index = threadIdx.x;
@@ -48,7 +48,7 @@ __device__ float* inv(float* M, int N){
     int *infoArray = (int*)malloc(1*sizeof(int));
     
 	*dev_M = M;
-	*dev_out = new float[N];
+	//*dev_out = new float[N];;
     cublasHandle_t handle;
     cublasStatus_t stat = cublasCreate(&handle);
 
@@ -62,5 +62,5 @@ __device__ float* inv(float* M, int N){
     }
     free(pivotArray);
     free(infoArray);
-    return dev_out;
+    return *dev_out;
 }
