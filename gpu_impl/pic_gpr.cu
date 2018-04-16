@@ -4,8 +4,8 @@
 #include <assert.h>
 
 // CUDA runtime
-#include <cuda_runtime.h>
-#include "cublas.h"
+//#include <cuda_runtime.h>
+//#include "cublas.h"
 
 #include <math.h>
 #include <string.h>
