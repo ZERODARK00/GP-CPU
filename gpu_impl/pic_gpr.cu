@@ -21,7 +21,7 @@ __global__ void slave_local(int N, float *S, float *D, float *yD, float *U, floa
 
     // host copies
     float **a = new float*[4];
-    float **a = new float*[4];
+    float **b = new float*[4];
     float **out = new float*[4];
 
     // device copies
@@ -76,7 +76,7 @@ __global__ void slave_global(int N, float *S, float *D, float *yD, float *U, flo
 
     // local copies
     float **a = new float*[5];
-    float **a = new float*[5];
+    float **b = new float*[5];
     float **out = new float*[5];
 
     // device copies
@@ -123,17 +123,16 @@ __global__ void slave_global(int N, float *S, float *D, float *yD, float *U, flo
     float *local_US = UD*inv_DD_S*DS;
     float *local_SU = SD*inv_DD_S*DU;
     float *local_UU = UD*inv_DD_S*DU;
-    float *pred_mean = US*inv(global_C, N)*global_M; //(Phi_US*inv(global_C, N)*global_M) + UD*inv_DD_S*yD;
-    float *pred_covar = UU - US * (inv(SS, N) - inv(global_C, N))*SU; //UU-(Phi_US*inv(SS, N)*SU-US*inv(SS, N)*local_SU-Phi_US*inv(global_C, N)*trans(Phi_US))-local_UU;
 
     // predictions stored in pred_mean
+    pred_mean = US*inv(global_C, N)*global_M; //(Phi_US*inv(global_C, N)*global_M) + UD*inv_DD_S*yD;
+    //float *pred_covar = UU - US * (inv(SS, N) - inv(global_C, N))*SU; //UU-(Phi_US*inv(SS, N)*SU-US*inv(SS, N)*local_SU-Phi_US*inv(global_C, N)*trans(Phi_US))-local_UU;
 }
 
 // master runs on CPU
 void master(mat S, int** pred, int* partition, mat train_data, mat train_target, mat test_data, mat test_target, int interval) {
     int	slaveCount;
     int samples = S.n_rows;
-    float *test_mean, *test_covar;
 
     float *global_M = new float[samples];
     float *global_C = new float[samples];
