@@ -58,7 +58,7 @@ __global__ void slave_local(int N, float *S, float *D, float *yD, float *U, floa
     cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, inv_DD_S, N, SD, N, &beta, inv_DD_S, N);
 
     alpha = -1.0;
-    float *dd = malloc(sizeof(float)*size);
+    float *dd = new float[size];
     memcpy(dd, DD, size);
     cublasSaxpy(handle, size, &alpha, inv_DD_S, 1, dd, 1);
 
