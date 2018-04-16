@@ -2,6 +2,7 @@
 #include <math.h>
 #include <string.h>
 #include "operators.hpp"
+#include <time.h>
 
 
 #define TRAIN_TAG     1
@@ -52,7 +53,7 @@ void master(mat S, int* pred, int* partition, float (*Kernel)(mat M1, mat M2))
     * Receive results for local summary
     */
 	for (rank = 1; rank < ntasks; ++rank) {
-        cout<<"Master: receive local summary."<<endl;
+        // cout<<"Master: receive local summary."<<endl;
 
         double *rece_local_M = new double[samples];
         double *rece_local_C = new double[samples*samples];
@@ -79,7 +80,7 @@ void master(mat S, int* pred, int* partition, float (*Kernel)(mat M1, mat M2))
     * Tell all the slaves about the global summary
     */
     for (rank = 1; rank < ntasks; ++rank) {
-        cout<<"Master: send global summary."<<endl;
+        // cout<<"Master: send global summary."<<endl;
 
         
         double *send_global_M = new double[samples];
@@ -102,7 +103,7 @@ void master(mat S, int* pred, int* partition, float (*Kernel)(mat M1, mat M2))
     */
     int idx = 0;
 	for (rank = 1; rank < ntasks; ++rank) {
-        cout<<"Master: receive prediction."<<endl;
+        // cout<<"Master: receive prediction."<<endl;
         double *rece_pred_M = new double[partition[rank]];
 
 		MPI_Recv(rece_pred_M, partition[rank], MPI_DOUBLE, rank, MEAN_TAG, MPI_COMM_WORLD, &status);
@@ -115,7 +116,7 @@ void master(mat S, int* pred, int* partition, float (*Kernel)(mat M1, mat M2))
 
 	}
 
-    cout<<"Done"<<endl;
+    // cout<<"Done"<<endl;
 
     /*
     * Tell all the slaves to exit.
@@ -148,7 +149,7 @@ void slave(mat S, mat D, mat yD, mat U, float (*Kernel)(mat M1, mat M2))
 		if (status.MPI_TAG == DIE_TAG) {
 			return;
 		}else{
-            cout<<"Slave: calculate local mean"<<endl;
+            // cout<<"Slave: calculate local mean"<<endl;
             // Calculate for local summary
             SD = covariance(S, D, Kernel);
             DD = covariance(D, D, Kernel);
@@ -161,7 +162,7 @@ void slave(mat S, mat D, mat yD, mat U, float (*Kernel)(mat M1, mat M2))
             // cout<<"local mean:\n"<<SD<<endl;
             // cout<<"SD*inv(DD_S):\n"<<SD*inv_DD_S<<endl;
 
-            cout<<"Rows of local mean: "<<local_M.n_rows<<endl;
+            // cout<<"Rows of local mean: "<<local_M.n_rows<<endl;
             // cout<<"Local mean:\n"<<local_M<<endl;
             double *send_local_M = new double[samples];
             double *send_local_C = new double[samples*samples];
@@ -177,7 +178,7 @@ void slave(mat S, mat D, mat yD, mat U, float (*Kernel)(mat M1, mat M2))
             MPI_Send(send_local_C, samples*samples, MPI_DOUBLE, 0, COVAR_TAG, MPI_COMM_WORLD);
         
             // Receive global summary
-            cout<<"Slave: receive global summary"<<endl;
+            // cout<<"Slave: receive global summary"<<endl;
 
             double *rece_global_M = new double[samples];
             double *rece_global_C = new double[samples*samples];
@@ -193,7 +194,7 @@ void slave(mat S, mat D, mat yD, mat U, float (*Kernel)(mat M1, mat M2))
             }
 
             // Caculate for predictions
-            cout<<"Slave: predict for testing data"<<endl;
+            // cout<<"Slave: predict for testing data"<<endl;
             mat UU = covariance(U, U, Kernel);
             mat US = covariance(U, S, Kernel);
             mat SU = covariance(S, U, Kernel);
@@ -202,9 +203,11 @@ void slave(mat S, mat D, mat yD, mat U, float (*Kernel)(mat M1, mat M2))
             mat local_US = UD*inv_DD_S*DS;
             mat local_SU = SD*inv_DD_S*DU;
             mat local_UU = UD*inv_DD_S*DU;
-            mat Phi_US = US+US*pinv(SS)*local_C-local_US;
-            mat pred_mean = (Phi_US*pinv(global_C)*global_M) + UD*inv_DD_S*yD;
-            mat pred_covar = UU-(Phi_US*pinv(SS)*SU-US*pinv(SS)*local_SU-Phi_US*pinv(global_C)*trans(Phi_US))-local_UU;
+            mat pred_mean = US*pinv(global_C)*global_M;
+            mat pred_covar = UU - US*(pinv(SS)-pinv(global_C))*SU;
+            // mat Phi_US = US+US*pinv(SS)*local_C-local_US;
+            // mat pred_mean = (Phi_US*pinv(global_C)*global_M) + UD*inv_DD_S*yD;
+            // mat pred_covar = UU-(Phi_US*pinv(SS)*SU-US*pinv(SS)*local_SU-Phi_US*pinv(global_C)*trans(Phi_US))-local_UU;
 
 
             int pred_samples = pred_mean.n_elem;
@@ -214,7 +217,7 @@ void slave(mat S, mat D, mat yD, mat U, float (*Kernel)(mat M1, mat M2))
                 send_pred_M[i] = pred_mean(i,0);
             }
             
-            cout<<"Slave: send prediction"<<endl;
+            // cout<<"Slave: send prediction"<<endl;
 
             MPI_Send(send_pred_M, pred_samples, MPI_DOUBLE, 0, MEAN_TAG, MPI_COMM_WORLD);
         }
@@ -271,25 +274,28 @@ int main(int argc, char *argv[]){
 	MPI_Comm_rank(
         MPI_COMM_WORLD,   /* always use this */
         &myrank);      /* process rank, 0 thru N-1 */
+
+    clock_t begin = clock();
+
 	if (myrank == 0) {
-        cout<<"Here is master."<<endl;
+        // cout<<"Here is master."<<endl;
         // cout<<"First 10 rows of data:\n"<<data.rows(0, 9)<<endl;
-		cout<<"Number of all samples: "<<all_samples<<endl;
+		// cout<<"Number of all samples: "<<all_samples<<endl;
 
         mat pred_M = zeros<mat>(all_samples-all_samples/2, 1);
         master(support, pred, partitions, Kernel);
         for(int i=0;i<(all_samples-all_samples/2);i++){
-            cout << pred[i] << "(" << test_target(i, 0) << ")" << "\t";
-            if(i%10==0 && i!=0){
-                cout<<endl;
-            }
+            // cout << pred[i] << "(" << test_target(i, 0) << ")" << "\t";
+            // if(i%10==0 && i!=0){
+            //     cout<<endl;
+            // }
             pred_M(i, 0) = pred[i];
         }
 
-        cout<<"\nPredict Score: "<<norm(pred_M-test_target, 2)/(all_samples-all_samples/2)<<endl;
+        // cout<<"\nPredict Score: "<<norm(pred_M-test_target, 2)/(all_samples-all_samples/2)<<endl;
 	} else {
-        cout<<"Here is slave "<<myrank<<endl;
-        cout<<"Train from row "<<(myrank-1)*intervals<<" to "<<myrank*intervals-1<<endl;
+        // cout<<"Here is slave "<<myrank<<endl;
+        // cout<<"Train from row "<<(myrank-1)*intervals<<" to "<<myrank*intervals-1<<endl;
         mat my_train_data = train_data.rows((myrank-1)*intervals, myrank*intervals-1);
         mat my_train_target = train_target.rows((myrank-1)*intervals, myrank*intervals-1);
         mat my_test_data = test_data.rows((myrank-1)*intervals, myrank*intervals-1);
@@ -298,5 +304,9 @@ int main(int argc, char *argv[]){
 		slave(support, my_train_data, my_train_target, my_test_data, Kernel);
 	}
 	MPI_Finalize();       /* cleanup MPI */
+
+    clock_t end = clock();
+    double time_spent = (double)(end - begin) / CLOCKS_PER_SEC;
+    cout << "Total time is: " << time_spent << endl;
     return(0);
 }
