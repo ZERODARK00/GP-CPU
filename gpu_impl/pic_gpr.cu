@@ -68,12 +68,12 @@ __global__ void slave_local(int N, float *S, float *D, float *yD, float *U, floa
     // calculate local summary
     cublasHandle_t handle;
     cublasStatus_t stat = cublasCreate(&handle);
-    float alpha = 1.0;
+    float alpha = 1.0f;
     float beta = 0.0f;
     int size = N*N;
 
-    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, DS, N, inv(SS, N), N, inv_DD_S, N);
-    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, inv_DD_S, N, SD, N, inv_DD_S, N);
+    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, DS, N, inv(SS, N), N, &beta, inv_DD_S, N);
+    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, inv_DD_S, N, SD, N, &beta, inv_DD_S, N);
 
     alpha = -1.0;
     float *dd;
@@ -86,12 +86,12 @@ __global__ void slave_local(int N, float *S, float *D, float *yD, float *U, floa
     alpha = 1.0;
 
     // compute local mean
-    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, SD, N, inv_DD_S, N, local_M, N);
-    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,1,N, &alpha, local_M, N, yD, N, local_M, N);
+    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, SD, N, inv_DD_S, N, &beta, local_M, N);
+    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,1,N, &alpha, local_M, N, yD, N, &beta, local_M, N);
 
     // compute local cov
-    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, SD, N, inv_DD_S, N, local_C, N);
-    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, local_C, N, DS, N, local_C, N);
+    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, SD, N, inv_DD_S, N, &beta, local_C, N);
+    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, local_C, N, DS, N, &beta, local_C, N);
 }
 
 // to calculate for global summary (running on GPU)
@@ -152,20 +152,20 @@ __global__ void slave_global(int N, float *S, float *D, float *yD, float *U, flo
     int size = N*N;
 
     // local_US
-    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, UD, N, inv_DD_S, N, local_US, N);
-    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, local_US, N, DS, N, local_US, N);
+    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, UD, N, inv_DD_S, N, &beta, local_US, N);
+    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, local_US, N, DS, N, &beta, local_US, N);
 
     // local_SU
-    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, SD, N, inv_DD_S, N, local_SU, N);
-    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, local_SU, N, DU, N, local_SU, N);
+    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, SD, N, inv_DD_S, N, &beta, local_SU, N);
+    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, local_SU, N, DU, N, &beta, local_SU, N);
 
     // local_UU
-    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, UD, N, inv_DD_S, N, local_UU, N);
-    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, local_UU, N, DU, N, local_UU, N);
+    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, UD, N, inv_DD_S, N, &beta, local_UU, N);
+    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, local_UU, N, DU, N, &beta, local_UU, N);
 
     // predictions stored in pred_mean
-    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, US, N, inv(global_C, N), N, pred_mean, N);
-    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, pred_mean, N, global_M, N, pred_mean, N);
+    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, US, N, inv(global_C, N), N, &beta, pred_mean, N);
+    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, pred_mean, N, global_M, N, &beta, pred_mean, N);
 }
 
 // master runs on CPU
