@@ -14,6 +14,7 @@
 
 #define NUM_SLAVES 5
 #define CARD_SUPPORT_SET 20
+#define NUM_SAMPLES 100000
 
 float Kernel(mat M1, mat M2){
     // M1 and M2 are row vectors
@@ -228,7 +229,7 @@ void slave(mat S, mat D, mat yD, mat U, float (*Kernel)(mat M1, mat M2))
 int main(int argc, char *argv[]){
     // load data from csv file
     std::string path = "data.csv";
-    mat data = parseCsvFile(path, 1000);
+    mat data = parseCsvFile(path, NUM_SAMPLES);
     // cout << data << endl;
 
     // normalise the dataset
@@ -307,6 +308,6 @@ int main(int argc, char *argv[]){
 
     clock_t end = clock();
     double time_spent = (double)(end - begin) / CLOCKS_PER_SEC;
-    cout << "Total time is: " << time_spent << endl;
+    cout << "Total time for " << NUM_SAMPLES << " samples: " << time_spent << endl;
     return(0);
 }

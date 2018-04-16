@@ -14,6 +14,12 @@ The implementation of this parallel Guassian Process on CPU is based on this [pa
 
 `mpirun -np 6 pic_gpr`
 
+Total time for 10,000 samples: 0.00081
+Total time for 20,000 samples: 0.000953
+Total time for 40,000 samples: 0.001065
+Total time for 60,000 samples: 0.001442
+Total time for 80,000 samples: 0.00192
+Total time for 100,000 samples: 0.002464
 
 # For Parallel GP-GPU
 
