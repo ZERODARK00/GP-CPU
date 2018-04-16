@@ -8,10 +8,6 @@
  
 using namespace arma;
 
-// formulation is $\sum_{AB}$
-mat covariance(const mat A, const mat B, float (*Kernel)(mat A, mat B));
-
-//formulation is $\sum_{AA|B}$
-mat conditional_covariance(const mat A, const mat B, float (*Kernel)(mat A, mat B));
+float* matToArray(mat m);
 
 mat parseCsvFile(std::string inputFileName, int rows);

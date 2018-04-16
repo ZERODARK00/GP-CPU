@@ -16,4 +16,4 @@ __device__ float Kernel(float* V1, float* V2, int N);
 // M1, M2 are square matrix with the same shape and N is the number of rows/columns, Out is the output square matrix of this kernel function with N rows 
 __global__ void cov(float* M1, float* M2, int N, float* Out);
 // M is square matrix and N is the number of rows/columns
-__global__ void inv(float* M, int N, float* out);
+__device__ float* inv(float* M, int N);

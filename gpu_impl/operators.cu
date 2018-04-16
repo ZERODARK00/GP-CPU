@@ -37,14 +37,14 @@ __global__ void cov(float* M1, float* M2, int N, float* Out){
     }
 }
 // M is square matrix and N is the number of rows/columns
-__global__ void inv(float* M, int N, float* out){
+__device__ float* inv(float* M, int N){
     float** dev_M = (float**)malloc(sizeof(float*));
 	float** dev_out = (float**)malloc(sizeof(float*));
     int *pivotArray = (int*)malloc(N*1*sizeof(int));
     int *infoArray = (int*)malloc(1*sizeof(int));
     
 	*dev_M = M;
-	*dev_out = out;
+	*dev_out = new float[N];
     cublasHandle_t handle;
     cublasStatus_t stat = cublasCreate(&handle);
 
@@ -58,4 +58,5 @@ __global__ void inv(float* M, int N, float* out){
     }
     free(pivotArray);
     free(infoArray);
+    return dev_out;
 }
