@@ -17,11 +17,12 @@
 
 // to compute local summary (running on GPU)
 __global__ void slave_local(int N, float *S, float *D, float *yD, float *U, float *local_M, float *local_C) {
-    int samples = S.n_rows;
     __shared__ float *SD, *DD, *DS, *SS, *inv_DD_S;
 
     // host copies
-    float *a, *b, **out;
+    float **a = new float*[4];
+    float **a = new float*[4];
+    float **out = new float*[4];
 
     // device copies
     float *d_a, *d_b, *d_out;
@@ -74,7 +75,9 @@ __global__ void slave_global(int N, float *S, float *D, float *yD, float *U, flo
     extern __shared__ float *SD, *DD, *DS, *SS, *inv_DD_S;
 
     // local copies
-    float *a, *b, *out;
+    float **a = new float*[5];
+    float **a = new float*[5];
+    float **out = new float*[5];
 
     // device copies
     float *d_a, *d_b, *d_out;
@@ -135,12 +138,12 @@ void master(mat S, int** pred, int* partition, mat train_data, mat train_target,
     float *global_M = new float[samples];
     float *global_C = new float[samples];
 
-    float *train_data_arr = new float[NUM_SLAVES];
-    float *train_target_arr = new float[NUM_SLAVES];
-    float *test_data_arr = new float[NUM_SLAVES];
+    float **train_data_arr = new float*[NUM_SLAVES];
+    float **train_target_arr = new float*[NUM_SLAVES];
+    float **test_data_arr = new float*[NUM_SLAVES];
 
-    float **local_M_arr = new float[NUM_SLAVES];
-    float **local_C_arr = new float[NUM_SLAVES];
+    float **local_M_arr = new float*[NUM_SLAVES];
+    float **local_C_arr = new float*[NUM_SLAVES];
 
     cudaStream_t *streams;
     int s = sizeof(float);
