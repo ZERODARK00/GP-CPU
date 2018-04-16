@@ -79,7 +79,7 @@ __global__ void slave_local(int N, float *S, float *D, float *yD, float *U, floa
     float *dd;
     cudaMalloc((void **) &dd, size);
     cudaMemcpy(dd, DD, size, cudaMemcpyHostToDevice);
-    cublasSaxpy(handle, NUM_FEATURES * partition[slaveCount], &alpha, inv_DD_S, 1, dd, 1);
+    cublasSaxpy(handle, size, &alpha, inv_DD_S, 1, dd, 1);
 
     inv_DD_S = inv(dd, N);
 
