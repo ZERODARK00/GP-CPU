@@ -20,20 +20,9 @@
 __global__ void slave_local(int N, float *S, float *D, float *yD, float *U, float *local_M, float *local_C) {
     __shared__ float *SD, *DD, *DS, *SS, *inv_DD_S;
 
-    // host copies
     float **a = new float*[4];
     float **b = new float*[4];
     float **out = new float*[4];
-
-    // device copies
-    float *d_a, *d_b, *d_out;
-
-    int s = 4 * sizeof(float*);
-
-    // Allocate space for device copies
-    cudaMalloc((void **)&d_a, s);
-    cudaMalloc((void **)&d_b, s);
-    cudaMalloc((void **)&d_out, s);
 
     // Calculate for local summary
     // SD = covariance(S, D, Kernel);
@@ -46,19 +35,12 @@ __global__ void slave_local(int N, float *S, float *D, float *yD, float *U, floa
     a[2] = D; b[2] = S;
     a[3] = S; b[3] = S;
 
-    // copy inputs to device
-    cudaMemcpy(d_a, &a, s, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_b, &b, s, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_out, &out, s, cudaMemcpyHostToDevice);
 
     // execute 4 covariance functions in parallel using 4 blocks
-    cov<<<4,1>>>(d_a, d_b, N, d_out);
+    cov<<<4,N>>>(a, b, N, out);
 
     // synchronice all device functions
-    cudaDeviceSynchronize();
-
-    // copy outputs to host
-    cudaMemcpy(out, d_out, s, cudaMemcpyDeviceToHost);
+    // cudaDeviceSynchronize();
 
     SD = out[0];
     DD = out[1];
@@ -76,9 +58,8 @@ __global__ void slave_local(int N, float *S, float *D, float *yD, float *U, floa
     cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, inv_DD_S, N, SD, N, &beta, inv_DD_S, N);
 
     alpha = -1.0;
-    float *dd;
-    cudaMalloc((void **) &dd, size);
-    cudaMemcpy(dd, DD, size, cudaMemcpyHostToDevice);
+    float *dd = malloc(sizeof(float)*size);
+    memcpy(dd, DD, size);
     cublasSaxpy(handle, size, &alpha, inv_DD_S, 1, dd, 1);
 
     inv_DD_S = inv(dd, N);
@@ -103,16 +84,6 @@ __global__ void slave_global(int N, float *S, float *D, float *yD, float *U, flo
     float **b = new float*[5];
     float **out = new float*[5];
 
-    // device copies
-    float *d_a, *d_b, *d_out;
-
-    int s = 5 * sizeof(float*);
-
-    // Allocate space for device copies
-    cudaMalloc((void **)&d_a, s);
-    cudaMalloc((void **)&d_b, s);
-    cudaMalloc((void **)&d_out, s);
-
     // Calculate for global summary
     // mat UU = covariance(U, U, Kernel);
     // mat US = covariance(U, S, Kernel);
@@ -126,16 +97,8 @@ __global__ void slave_global(int N, float *S, float *D, float *yD, float *U, flo
     a[3] = U; b[3] = D;
     a[4] = D; b[4] = U;
 
-    // copy inputs to device
-    cudaMemcpy(d_a, &a, s, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_b, &b, s, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_out, &out, s, cudaMemcpyHostToDevice);
-
     // execute 5 covariance functions in parallel using 5 blocks
-    cov<<<5,1>>>(d_a, d_b, N, d_out);
-
-    // copy outputs to host
-    cudaMemcpy(out, d_out, s, cudaMemcpyDeviceToHost);
+    cov<<<5,N>>>(d_a, d_b, N, d_out);
 
     float *UU = out[0];
     float *US = out[1];

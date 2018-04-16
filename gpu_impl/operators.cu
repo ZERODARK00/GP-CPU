@@ -26,9 +26,13 @@ __device__ float Kernel(float* V1, float* V2, int N){
     return out;
 }
 // M1, M2 are square matrix with the same shape and N is the number of rows/columns, Out is the output square matrix of this kernel function with N rows 
-__global__ void cov(float* M1, float* M2, int N, float* Out){
-    int index = blockIdx.x * blockDim.x + threadIdx.x;
-    int stride = blockDim.x * gridDim.x;
+__global__ void cov(float** m1, float** m2, int N, float** out){
+    float *M1 = M1[blockIdx.x];
+    float *M2 = M2[blockIdx.x];
+    float *Out = out[blockIdx.x];
+
+    int index = threadIdx.x;
+    int stride = blockDim.x;
 
     for(int i=index; i< N; i+=stride){
         for(int j=0; j<N; j++){
