@@ -14,6 +14,7 @@
 
 #define NUM_SLAVES 5
 #define CARD_SUPPORT_SET 20
+#define NUM_FEATURES 9
 
 // to compute local summary (running on GPU)
 __global__ void slave_local(int N, float *S, float *D, float *yD, float *U, float *local_M, float *local_C) {
@@ -65,9 +66,32 @@ __global__ void slave_local(int N, float *S, float *D, float *yD, float *U, floa
     SS = out[3];
 
     // calculate local summary
-    inv_DD_S = inv(DD-DS*inv(SS, N)*SD, N);
-    local_M = SD*inv_DD_S*yD;
-    local_C = SD*inv_DD_S*DS;
+    cublasHandle_t handle;
+    cublasStatus_t stat = cublasCreate(&handle);
+    float alpha = 1.0;
+    float beta = 0.0f;
+    int size = N*N;
+
+    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, DS, N, inv(SS, N), N, inv_DD_S, N);
+    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, inv_DD_S, N, SD, N, inv_DD_S, N);
+
+    alpha = -1.0;
+    float *dd;
+    cudaMalloc((void **) &dd, size);
+    cudaMemcpy(dd, DD, size, cudaMemcpyHostToDevice);
+    cublasSaxpy(handle, NUM_FEATURES * partition[slaveCount], &alpha, inv_DD_S, 1, dd, 1);
+
+    inv_DD_S = inv(dd, N);
+
+    alpha = 1.0;
+
+    // compute local mean
+    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, SD, N, inv_DD_S, N, local_M, N);
+    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,1,N, &alpha, local_M, N, yD, N, local_M, N);
+
+    // compute local cov
+    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, SD, N, inv_DD_S, N, local_C, N);
+    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, local_C, N, DS, N, local_C, N);
 }
 
 // to calculate for global summary (running on GPU)
@@ -120,13 +144,28 @@ __global__ void slave_global(int N, float *S, float *D, float *yD, float *U, flo
     float *DU = out[4];
 
     // calculate global summary
-    float *local_US = UD*inv_DD_S*DS;
-    float *local_SU = SD*inv_DD_S*DU;
-    float *local_UU = UD*inv_DD_S*DU;
+    float *local_US, *local_SU, *local_UU;
+    cublasHandle_t handle;
+    cublasStatus_t stat = cublasCreate(&handle);
+    float alpha = 1.0;
+    float beta = 0.0f;
+    int size = N*N;
+
+    // local_US
+    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, UD, N, inv_DD_S, N, local_US, N);
+    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, local_US, N, DS, N, local_US, N);
+
+    // local_SU
+    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, SD, N, inv_DD_S, N, local_SU, N);
+    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, local_SU, N, DU, N, local_SU, N);
+
+    // local_UU
+    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, UD, N, inv_DD_S, N, local_UU, N);
+    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, local_UU, N, DU, N, local_UU, N);
 
     // predictions stored in pred_mean
-    pred_mean = US*inv(global_C, N)*global_M; //(Phi_US*inv(global_C, N)*global_M) + UD*inv_DD_S*yD;
-    //float *pred_covar = UU - US * (inv(SS, N) - inv(global_C, N))*SU; //UU-(Phi_US*inv(SS, N)*SU-US*inv(SS, N)*local_SU-Phi_US*inv(global_C, N)*trans(Phi_US))-local_UU;
+    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, US, N, inv(global_C, N), N, pred_mean, N);
+    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, pred_mean, N, global_M, N, pred_mean, N);
 }
 
 // master runs on CPU
@@ -189,10 +228,14 @@ void master(mat S, int** pred, int* partition, mat train_data, mat train_target,
     // synchronice all device functions
     cudaDeviceSynchronize();
 
+    cublasHandle_t handle;
+    cublasStatus_t stat = cublasCreate(&handle);
+    float alpha = 1.0;
+
     // sum up local summary to get global summary
     for (slaveCount = 0; slaveCount < NUM_SLAVES; slaveCount++) {
-        global_M = global_M + local_M_arr[slaveCount];
-        global_C = global_C + local_C_arr[slaveCount];
+        cublasSaxpy(handle, NUM_FEATURES * partition[slaveCount], &alpha, local_M_arr[slaveCount], 1, global_M, 1);
+        cublasSaxpy(handle, NUM_FEATURES * partition[slaveCount], &alpha, local_C_arr[slaveCount], 1, global_C, 1);
     }
 
     // calculate for final prediction
