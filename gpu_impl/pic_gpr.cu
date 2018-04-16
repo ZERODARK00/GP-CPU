@@ -198,7 +198,7 @@ void master(mat S, int** pred, int* partition, mat train_data, mat train_target,
         // device copies
         float *d_support, *d_train_data, *d_train_target, *d_test_data, *local_C;
         float *d_global_M, *d_global_C;
-        double *d_pred_M;
+        float *d_pred_M;
 
         // Allocate space for device copies
         cudaMalloc((void **)&d_support, s);
@@ -225,7 +225,7 @@ void master(mat S, int** pred, int* partition, mat train_data, mat train_target,
         slave_global<<<1, 1, 0, streams[slaveCount]>>>(partition[slaveCount], d_support, d_train_data, d_train_target, d_test_data, local_C, d_global_M, d_global_C, d_pred_M);
 
         // Copy result back to host
-        cudaMemcpy(&pred[slaveCount], d_pred_M, sizeof(double), cudaMemcpyDeviceToHost);
+        cudaMemcpy(&pred[slaveCount], d_pred_M, sizeof(float), cudaMemcpyDeviceToHost);
 
         // Cleanup
         cudaFree(d_support); cudaFree(d_train_data); cudaFree(d_train_target); cudaFree(d_test_data); cudaFree(local_C);
