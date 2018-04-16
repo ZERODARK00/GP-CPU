@@ -98,7 +98,7 @@ __global__ void slave_global(int N, float *S, float *D, float *yD, float *U, flo
     a[4] = D; b[4] = U;
 
     // execute 5 covariance functions in parallel using 5 blocks
-    cov<<<5,N>>>(d_a, d_b, N, d_out);
+    cov<<<5,N>>>(a, b, N, out);
 
     float *UU = out[0];
     float *US = out[1];
