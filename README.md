@@ -37,4 +37,4 @@ The implementation for this parallel Gaussian Process on GPU can be found in gpu
 
 ## How to compile and run it
 
-`nvcc -arch=sm_35 -rdc=true pic_gpr.cu`
+`nvcc -arch=compute_35 -rdc=true pic_gpr.cu operators.cu operators.hpp -o pic_gpr -lcublas_device -lcublas -lcudadevrt -std=c++11 -g -G`
