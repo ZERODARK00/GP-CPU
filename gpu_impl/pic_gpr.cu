@@ -8,21 +8,17 @@
 
 #define NUM_SLAVES 5
 #define CARD_SUPPORT_SET 20
-#define NUM_FEATURES 9
+#define NUM_FEATURES 8
 
 // to compute local summary (running on GPU)
-__global__ void slave_local(int N, float *S, float *D, float *yD, float *U, float *local_M, float *local_C) {
-    __shared__ float *SD, *DD, *DS, *SS, *inv_DD_S;
+__global__ void slave_local(int N, float *S, float *D, float *yD, float *local_M, float *local_C) {
+    //__shared__ float *SD, *DD, *DS, *SS, *inv_DD_S;
+    float *SD, *DD, *DS, *SS;
+    float *inv_DD_S = new float[N*N];
 
     float **a = new float*[4];
     float **b = new float*[4];
     float **out = new float*[4];
-
-    // Calculate for local summary
-    // SD = covariance(S, D, Kernel);
-    // DD = covariance(D, D, Kernel);
-    // DS = covariance(D, S, Kernel);
-    // SS = covariance(S, S, Kernel);
 
     a[0] = S; b[0] = D;
     a[1] = D; b[1] = D;
@@ -53,7 +49,7 @@ __global__ void slave_local(int N, float *S, float *D, float *yD, float *U, floa
 
     alpha = -1.0;
     float *dd = new float[size];
-    memcpy(dd, DD, size);
+    memcpy(dd, DD, size*sizeof(float));
     cublasSaxpy(handle, size, &alpha, inv_DD_S, 1, dd, 1);
 
     inv_DD_S = inv(dd, N);
@@ -70,56 +66,26 @@ __global__ void slave_local(int N, float *S, float *D, float *yD, float *U, floa
 }
 
 // to calculate for global summary (running on GPU)
-__global__ void slave_global(int N, float *S, float *D, float *yD, float *U, float *local_C, float *global_C, float *global_M, float *pred_mean) {
-    extern __shared__ float *SD, *DD, *DS, *SS, *inv_DD_S;
+__global__ void slave_global(int N, float *S, float *U, float *global_C, float *global_M, float *pred_mean) {
+    //extern __shared__ float *SD, *DD, *DS, *SS, *inv_DD_S;
 
     // local copies
-    float **a = new float*[5];
-    float **b = new float*[5];
-    float **out = new float*[5];
-
-    // Calculate for global summary
-    // mat UU = covariance(U, U, Kernel);
-    // mat US = covariance(U, S, Kernel);
-    // mat SU = covariance(S, U, Kernel);
-    // mat UD = covariance(U, D, Kernel);
-    // mat DU = covariance(D, U, Kernel);
-
-    a[0] = U; b[0] = U;
-    a[1] = U; b[1] = S;
-    a[2] = S; b[2] = U;
-    a[3] = U; b[3] = D;
-    a[4] = D; b[4] = U;
+    float **a = new float*[1];
+    float **b = new float*[1];
+    float **out = new float*[1];
+    
+    a[0] = U; b[0] = S;
 
     // execute 5 covariance functions in parallel using 5 blocks
-    cov<<<5,N>>>(a, b, N, out);
+    cov<<<1,N>>>(a, b, N, out);
 
-    float *UU = out[0];
-    float *US = out[1];
-    float *SU = out[2];
-    float *UD = out[3];
-    float *DU = out[4];
+    float *US = out[0];
 
-    // calculate global summary
-    float *local_US, *local_SU, *local_UU;
     cublasHandle_t handle;
     cublasStatus_t stat = cublasCreate(&handle);
     float alpha = 1.0;
     float beta = 0.0f;
-    int size = N*N;
-
-    // local_US
-    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, UD, N, inv_DD_S, N, &beta, local_US, N);
-    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, local_US, N, DS, N, &beta, local_US, N);
-
-    // local_SU
-    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, SD, N, inv_DD_S, N, &beta, local_SU, N);
-    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, local_SU, N, DU, N, &beta, local_SU, N);
-
-    // local_UU
-    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, UD, N, inv_DD_S, N, &beta, local_UU, N);
-    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, local_UU, N, DU, N, &beta, local_UU, N);
-
+    
     // predictions stored in pred_mean
     cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, US, N, inv(global_C, N), N, &beta, pred_mean, N);
     cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, pred_mean, N, global_M, N, &beta, pred_mean, N);
@@ -128,12 +94,11 @@ __global__ void slave_global(int N, float *S, float *D, float *yD, float *U, flo
 // master runs on CPU
 void master(mat S, int** pred, int* partition, mat train_data, mat train_target, mat test_data, mat test_target, int interval) {
     int	slaveCount;
-    int samples = S.n_rows;
     
     float *S_set = matToArray(S);
 
-    float *global_M = new float[samples];
-    float *global_C = new float[samples];
+    float *global_M = new float[interval];
+    float *global_C = new float[interval];
 
     float **train_data_arr = new float*[NUM_SLAVES];
     float **train_target_arr = new float*[NUM_SLAVES];
@@ -142,7 +107,7 @@ void master(mat S, int** pred, int* partition, mat train_data, mat train_target,
     float **local_M_arr = new float*[NUM_SLAVES];
     float **local_C_arr = new float*[NUM_SLAVES];
 
-    cudaStream_t *streams;
+    cudaStream_t streams[NUM_SLAVES];
     int s = sizeof(float);
 
     
@@ -157,26 +122,25 @@ void master(mat S, int** pred, int* partition, mat train_data, mat train_target,
         float *d_support, *d_train_data, *d_train_target, *d_test_data, *local_M, *local_C;
 
         // Allocate space for device copies
-        cudaMalloc((void **)&d_support, NUM_SLAVES*CARD_SUPPORT_SET*NUM_FEATURES*sizeof(float));
-        cudaCheckError();
-        cudaMalloc((void **)&d_train_data, NUM_SLAVES*interval*NUM_FEATURES*s);
-        cudaMalloc((void **)&d_train_target, NUM_SLAVES*interval*1*s);
-        cudaMalloc((void **)&d_test_data, NUM_SLAVES*interval*NUM_FEATURES*s);
+        cudaMalloc((void **)&d_support, CARD_SUPPORT_SET*NUM_FEATURES*s);
+        cudaMalloc((void **)&d_train_data, interval*NUM_FEATURES*s);
+        cudaMalloc((void **)&d_train_target, interval*1*s);
+        cudaMalloc((void **)&d_test_data, interval*NUM_FEATURES*s);
 
         cudaMalloc((void **)&local_M, NUM_SLAVES*interval*1*s);
         cudaMalloc((void **)&local_C, NUM_SLAVES*interval*interval*s);
 
-        // Copy inputs to device
-        cudaMemcpy(d_support, &S_set, CARD_SUPPORT_SET*NUM_FEATURES*s, cudaMemcpyHostToDevice);
-        cudaMemcpy(d_train_data, &train_data_arr[slaveCount], interval*NUM_FEATURES*s, cudaMemcpyHostToDevice);
-        cudaMemcpy(d_train_target, &train_target_arr[slaveCount], interval*NUM_FEATURES*s, cudaMemcpyHostToDevice);
-        cudaMemcpy(d_test_data, &test_data_arr[slaveCount], interval*NUM_FEATURES*s, cudaMemcpyHostToDevice);
+
+        HANDLE_ERROR(cudaMemcpy(d_support, S_set, CARD_SUPPORT_SET*NUM_FEATURES*s, cudaMemcpyHostToDevice));
+        HANDLE_ERROR(cudaMemcpy(d_train_data, train_data_arr[slaveCount], interval*NUM_FEATURES*s, cudaMemcpyHostToDevice));
+        cudaMemcpy(d_train_target, train_target_arr[slaveCount], interval*NUM_FEATURES*s, cudaMemcpyHostToDevice);
+        cudaMemcpy(d_test_data, test_data_arr[slaveCount], interval*NUM_FEATURES*s, cudaMemcpyHostToDevice);
 
         // create new stream for parallel grid execution
         cudaStreamCreate(&streams[slaveCount]);
 
         // launch one worker(slave) kernel per stream
-        slave_local<<<1, 1, 0, streams[slaveCount]>>>(partition[slaveCount], d_support, d_train_data, d_train_target, d_test_data, local_M, local_C);
+        slave_local<<<1, 1, 0, streams[slaveCount]>>>(partition[slaveCount], d_support, d_train_data, d_train_target, local_M, local_C);
 
         // Copy result back to host
         cudaMemcpy(&local_M_arr[slaveCount], local_M, interval*1*s, cudaMemcpyDeviceToHost);
@@ -187,7 +151,10 @@ void master(mat S, int** pred, int* partition, mat train_data, mat train_target,
     }
 
     // synchronice all device functions
-    cudaDeviceSynchronize();
+    for(int i=0; i<NUM_SLAVES; i++){
+        cudaStreamSynchronize(streams[i]);
+    }
+    //cudaDeviceSynchronize();
 
     cublasHandle_t handle;
     cublasStatus_t stat = cublasCreate(&handle);
@@ -228,7 +195,7 @@ void master(mat S, int** pred, int* partition, mat train_data, mat train_target,
         cudaMemcpy(d_global_C, &global_C, s, cudaMemcpyHostToDevice);
 
         // launch one worker(slave) kernel per stream, reuse stream to access shared variables
-        slave_global<<<1, 1, 0, streams[slaveCount]>>>(partition[slaveCount], d_support, d_train_data, d_train_target, d_test_data, local_C, d_global_M, d_global_C, d_pred_M);
+        slave_global<<<1, 1, 0, streams[slaveCount]>>>(partition[slaveCount], d_support, d_test_data, d_global_M, d_global_C, d_pred_M);
 
         // Copy result back to host
         cudaMemcpy(&pred[slaveCount], d_pred_M, sizeof(float), cudaMemcpyDeviceToHost);
@@ -251,9 +218,6 @@ int main(void){
     std::string path = "data.csv";
     mat data = parseCsvFile(path, 1000);
 
-    // my test
-    float *test_malloc;
-    HANDLE_ERROR(cudaMalloc((void**)&test_malloc, sizeof(float)));
     // normalise the dataset
     int rows = data.n_rows;
     int columns = data.n_cols;
