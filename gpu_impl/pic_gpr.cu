@@ -46,25 +46,33 @@ __global__ void slave_local(int N, float *S, float *D, float *yD, float *local_M
     float beta = 0.0f;
     int size = N*N;
 
-    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, DS, N, inv(SS, N), N, &beta, inv_DD_S, N);
-    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, inv_DD_S, N, SD, N, &beta, inv_DD_S, N);
+    float *inv_SS = new float[N*N];
+    float *DD_S = new float[N*N];
+
+    inv<<<1,1>>>(SS, N, inv_SS);
+
+    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, DS, N, inv_SS, N, &beta, DD_S, N);
+    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, DD_S, N, SD, N, &beta, inv_DD_S, N);
 
     alpha = -1.0;
-    float *dd = new float[size];
-    memcpy(dd, DD, size*sizeof(float));
-    cublasSaxpy(handle, size, &alpha, inv_DD_S, 1, dd, 1);
+    cublasSaxpy(handle, size, &alpha, inv_DD_S, 1, DD, 1);
 
-    inv_DD_S = inv(dd, N);
+    inv<<<1,1>>>(DD, N, inv_DD_S);
 
     alpha = 1.0;
 
     // compute local mean
-    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, SD, N, inv_DD_S, N, &beta, local_M, N);
-    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,1,N, &alpha, local_M, N, yD, N, &beta, local_M, N);
+    float *local_M_temp = new float[N*N];
+    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, SD, N, inv_DD_S, N, &beta, local_M_temp, N);
+    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,1,N, &alpha, local_M_temp, N, yD, N, &beta, local_M, N);
 
     // compute local cov
-    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, SD, N, inv_DD_S, N, &beta, local_C, N);
-    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, local_C, N, DS, N, &beta, local_C, N);
+    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, local_M_temp, N, DS, N, &beta, local_C, N);
+    
+    free(a); free(b); free(out);
+    free(inv_SS);
+    free(DD_S);
+    free(local_M_temp);
 }
 
 // to calculate for global summary (running on GPU)
@@ -88,8 +96,10 @@ __global__ void slave_global(int N, float *S, float *U, float *global_C, float *
     float alpha = 1.0;
     float beta = 0.0f;
     
+    float *inv_global_C = new float[N*N];
+    inv<<<1,1>>>(global_C, N, inv_global_C);
     // predictions stored in pred_mean
-    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, US, N, inv(global_C, N), N, &beta, pred_mean, N);
+    cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, US, N, inv_global_C, N, &beta, pred_mean, N);
     cublasSgemm(handle, CUBLAS_OP_N, CUBLAS_OP_N, N,N,N, &alpha, pred_mean, N, global_M, N, &beta, pred_mean, N);
 }
 
