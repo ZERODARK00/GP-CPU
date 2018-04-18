@@ -1,14 +1,8 @@
 // System includes
-#include <stdio.h>
 #include <iostream>
 #include <assert.h>
 
-// CUDA runtime
-//#include <cuda_runtime.h>
-//#include "cublas.h"
-
 #include <math.h>
-#include <string.h>
 #include "operators.hpp"
 #include "operators.cuh"
 
@@ -135,6 +129,8 @@ __global__ void slave_global(int N, float *S, float *D, float *yD, float *U, flo
 void master(mat S, int** pred, int* partition, mat train_data, mat train_target, mat test_data, mat test_target, int interval) {
     int	slaveCount;
     int samples = S.n_rows;
+    
+    float *S_set = matToArray(S);
 
     float *global_M = new float[samples];
     float *global_C = new float[samples];
@@ -149,6 +145,7 @@ void master(mat S, int** pred, int* partition, mat train_data, mat train_target,
     cudaStream_t *streams;
     int s = sizeof(float);
 
+    
     // start NUM_SLAVES workers to calculate for local summary
     for (slaveCount = 0; slaveCount < NUM_SLAVES; slaveCount++) {
         // partitions
@@ -156,23 +153,24 @@ void master(mat S, int** pred, int* partition, mat train_data, mat train_target,
         train_target_arr[slaveCount] = matToArray(train_target.rows(slaveCount*interval, (slaveCount+1)*interval-1));
         test_data_arr[slaveCount] = matToArray(test_data.rows(slaveCount*interval, (slaveCount+1)*interval-1));
 
-        // device copies
+
         float *d_support, *d_train_data, *d_train_target, *d_test_data, *local_M, *local_C;
 
         // Allocate space for device copies
-        cudaMalloc((void **)&d_support, s);
-        cudaMalloc((void **)&d_train_data, s);
-        cudaMalloc((void **)&d_train_target, s);
-        cudaMalloc((void **)&d_test_data, s);
+        cudaMalloc((void **)&d_support, NUM_SLAVES*CARD_SUPPORT_SET*NUM_FEATURES*sizeof(float));
+        cudaCheckError();
+        cudaMalloc((void **)&d_train_data, NUM_SLAVES*interval*NUM_FEATURES*s);
+        cudaMalloc((void **)&d_train_target, NUM_SLAVES*interval*1*s);
+        cudaMalloc((void **)&d_test_data, NUM_SLAVES*interval*NUM_FEATURES*s);
 
-        cudaMalloc((void **)&local_M, s);
-        cudaMalloc((void **)&local_C, s);
+        cudaMalloc((void **)&local_M, NUM_SLAVES*interval*1*s);
+        cudaMalloc((void **)&local_C, NUM_SLAVES*interval*interval*s);
 
         // Copy inputs to device
-        cudaMemcpy(d_support, &S, s, cudaMemcpyHostToDevice);
-        cudaMemcpy(d_train_data, &train_data_arr[slaveCount], s, cudaMemcpyHostToDevice);
-        cudaMemcpy(d_train_target, &train_target_arr[slaveCount], s, cudaMemcpyHostToDevice);
-        cudaMemcpy(d_test_data, &test_data_arr[slaveCount], s, cudaMemcpyHostToDevice);
+        cudaMemcpy(d_support, &S_set, CARD_SUPPORT_SET*NUM_FEATURES*s, cudaMemcpyHostToDevice);
+        cudaMemcpy(d_train_data, &train_data_arr[slaveCount], interval*NUM_FEATURES*s, cudaMemcpyHostToDevice);
+        cudaMemcpy(d_train_target, &train_target_arr[slaveCount], interval*NUM_FEATURES*s, cudaMemcpyHostToDevice);
+        cudaMemcpy(d_test_data, &test_data_arr[slaveCount], interval*NUM_FEATURES*s, cudaMemcpyHostToDevice);
 
         // create new stream for parallel grid execution
         cudaStreamCreate(&streams[slaveCount]);
@@ -181,8 +179,8 @@ void master(mat S, int** pred, int* partition, mat train_data, mat train_target,
         slave_local<<<1, 1, 0, streams[slaveCount]>>>(partition[slaveCount], d_support, d_train_data, d_train_target, d_test_data, local_M, local_C);
 
         // Copy result back to host
-        cudaMemcpy(&local_M_arr[slaveCount], local_M, s, cudaMemcpyDeviceToHost);
-        cudaMemcpy(&local_C_arr[slaveCount], local_C, s, cudaMemcpyDeviceToHost);
+        cudaMemcpy(&local_M_arr[slaveCount], local_M, interval*1*s, cudaMemcpyDeviceToHost);
+        cudaMemcpy(&local_C_arr[slaveCount], local_C, interval*interval*s, cudaMemcpyDeviceToHost);
 
         // Cleanup
         cudaFree(d_support); cudaFree(d_train_data); cudaFree(d_train_target); cudaFree(d_test_data);
@@ -248,11 +246,14 @@ void master(mat S, int** pred, int* partition, mat train_data, mat train_target,
 }
 
 // main runs on CPU
-int main(int argc, char *argv[]){
+int main(void){
     // load data from csv file
     std::string path = "data.csv";
     mat data = parseCsvFile(path, 1000);
 
+    // my test
+    float *test_malloc;
+    HANDLE_ERROR(cudaMalloc((void**)&test_malloc, sizeof(float)));
     // normalise the dataset
     int rows = data.n_rows;
     int columns = data.n_cols;
@@ -287,7 +288,6 @@ int main(int argc, char *argv[]){
             support.insert_rows(0, train_data.row(idx+j));
         }
     }
-
     // call master function (execute on CPU) to start slaves (working on GPU)
     master(support, &pred, partitions, train_data, train_target, test_data, test_target, intervals);
 
