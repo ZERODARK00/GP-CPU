@@ -12,9 +12,9 @@
 #define COVAR_TAG 3
 
 
-#define NUM_SLAVES 5
+#define NUM_SLAVES 7
 #define CARD_SUPPORT_SET 20
-#define NUM_SAMPLES 100000
+#define NUM_SAMPLES 50000
 
 float Kernel(mat M1, mat M2){
     // M1 and M2 are row vectors
@@ -26,7 +26,7 @@ void master(mat S, int* pred, int* partition, float (*Kernel)(mat M1, mat M2))
 	int	ntasks, rank, work;
     int samples = S.n_rows;
 	mat test_mean, test_covar;
-	
+
     mat global_M = zeros<mat>(samples, 1);
     mat global_C = covariance(S, S, Kernel);
     mat local_M = zeros<mat>(samples, 1);
@@ -83,7 +83,7 @@ void master(mat S, int* pred, int* partition, float (*Kernel)(mat M1, mat M2))
     for (rank = 1; rank < ntasks; ++rank) {
         // cout<<"Master: send global summary."<<endl;
 
-        
+
         double *send_global_M = new double[samples];
         double *send_global_C = new double[samples*samples];
 
@@ -125,7 +125,7 @@ void master(mat S, int* pred, int* partition, float (*Kernel)(mat M1, mat M2))
 	for (rank = 1; rank < ntasks; ++rank) {
         work = 0;
 		MPI_Send(&work, 0, MPI_INT, rank, DIE_TAG, MPI_COMM_WORLD);
-        
+
 	}
 }
 
@@ -137,7 +137,7 @@ void slave(mat S, mat D, mat yD, mat U, float (*Kernel)(mat M1, mat M2))
 
     mat global_M = zeros<mat>(samples, 1);
     mat global_C = zeros<mat>(samples, samples);
-    
+
 	MPI_Status status;
 
 	while(true) {
@@ -177,7 +177,7 @@ void slave(mat S, mat D, mat yD, mat U, float (*Kernel)(mat M1, mat M2))
 
             MPI_Send(send_local_M, samples, MPI_DOUBLE, 0, MEAN_TAG, MPI_COMM_WORLD);
             MPI_Send(send_local_C, samples*samples, MPI_DOUBLE, 0, COVAR_TAG, MPI_COMM_WORLD);
-        
+
             // Receive global summary
             // cout<<"Slave: receive global summary"<<endl;
 
@@ -212,12 +212,12 @@ void slave(mat S, mat D, mat yD, mat U, float (*Kernel)(mat M1, mat M2))
 
 
             int pred_samples = pred_mean.n_elem;
-        
+
             double *send_pred_M = new double[pred_samples];
             for(int i=0; i<pred_mean.n_elem;i++){
                 send_pred_M[i] = pred_mean(i,0);
             }
-            
+
             // cout<<"Slave: send prediction"<<endl;
 
             MPI_Send(send_pred_M, pred_samples, MPI_DOUBLE, 0, MEAN_TAG, MPI_COMM_WORLD);
@@ -228,7 +228,8 @@ void slave(mat S, mat D, mat yD, mat U, float (*Kernel)(mat M1, mat M2))
 
 int main(int argc, char *argv[]){
     // load data from csv file
-    std::string path = "data.csv";
+    clock_t begin = clock();
+    std::string path = "hdb.csv";
     mat data = parseCsvFile(path, NUM_SAMPLES);
     // cout << data << endl;
 
@@ -251,9 +252,9 @@ int main(int argc, char *argv[]){
 
     // split data into training and testing samples
     int all_samples = data.n_rows;
-    mat train_data = data.rows(0, all_samples/2-1).cols(1, 8);
+    mat train_data = data.rows(0, all_samples/2-1).cols(1, 11);
     mat train_target = data.rows(0, all_samples/2-1).col(0);
-    mat test_data = data.rows(all_samples/2, all_samples-1).cols(1, 8);
+    mat test_data = data.rows(all_samples/2, all_samples-1).cols(1, 11);
     mat test_target = data.rows(all_samples/2, all_samples-1).col(0);
 
     int *pred = new int[all_samples-all_samples/2];
@@ -276,7 +277,6 @@ int main(int argc, char *argv[]){
         MPI_COMM_WORLD,   /* always use this */
         &myrank);      /* process rank, 0 thru N-1 */
 
-    clock_t begin = clock();
 
 	if (myrank == 0) {
         // cout<<"Here is master."<<endl;
