@@ -9,8 +9,8 @@
 
 #define NUM_SLAVES 5
 #define CARD_SUPPORT_SET 20
-#define NUM_FEATURES 8
-#define NUM_SAMPLES 1000
+#define NUM_FEATURES 11
+#define NUM_SAMPLES 20000
 
 // to compute local summary (running on GPU)
 __global__ void slave_local(int N, float *S, float *D, float *yD, float *local_M, float *local_C) {
@@ -27,9 +27,11 @@ __global__ void slave_local(int N, float *S, float *D, float *yD, float *local_M
     a[2] = D; b[2] = S;
     a[3] = S; b[3] = S;
 
-
+    //clock_t conv_s = clock();
     // execute 4 covariance functions in parallel using 4 blocks
     cov<<<4,N>>>(a, b, N, out);
+    //clock_t conv_e = clock();
+    //printf("Time spent for conv: %f\n", double(conv_e-conv_s)/CLOCKS_PER_SEC);
 
     // synchronice all device functions
     // cudaDeviceSynchronize();
@@ -139,18 +141,22 @@ void master(mat S, float* pred, int* partition, mat train_data, mat train_target
 
     cudaMemcpy(d_support, S_set, CARD_SUPPORT_SET*NUM_FEATURES*s, cudaMemcpyHostToDevice);
     
-    // start NUM_SLAVES workers to calculate for local summary
-    for (slaveCount = 0; slaveCount < NUM_SLAVES; slaveCount++) {
-        // create new stream for parallel grid execution
-        cudaStreamCreate(&streams[slaveCount]);
+    for (slaveCount=0; slaveCount < NUM_SLAVES; slaveCount++){
         
         train_data_arr[slaveCount] = matToArray(train_data.rows(slaveCount*interval, (slaveCount+1)*interval-1));
         train_target_arr[slaveCount] = matToArray(train_target.rows(slaveCount*interval, (slaveCount+1)*interval-1));
         test_data_arr[slaveCount] = matToArray(test_data.rows(slaveCount*interval, (slaveCount+1)*interval-1));
 
-        HANDLE_ERROR(cudaMemcpyAsync(&d_train_data[slaveCount*(interval*NUM_FEATURES)], train_data_arr[slaveCount], interval*NUM_FEATURES*s, cudaMemcpyHostToDevice, streams[slaveCount]));
-        cudaMemcpyAsync(&d_train_target[slaveCount*(interval*1)], train_target_arr[slaveCount], interval*1*s, cudaMemcpyHostToDevice, streams[slaveCount]);
-        cudaMemcpyAsync(&d_test_data[slaveCount*(interval*NUM_FEATURES)], test_data_arr[slaveCount], interval*NUM_FEATURES*s, cudaMemcpyHostToDevice, streams[slaveCount]);
+
+        cudaMemcpy(&d_train_data[slaveCount*(interval*NUM_FEATURES)], train_data_arr[slaveCount], interval*NUM_FEATURES*s, cudaMemcpyHostToDevice);
+        cudaMemcpy(&d_train_target[slaveCount*(interval*1)], train_target_arr[slaveCount], interval*1*s, cudaMemcpyHostToDevice);
+        cudaMemcpy(&d_test_data[slaveCount*(interval*NUM_FEATURES)], test_data_arr[slaveCount], interval*NUM_FEATURES*s, cudaMemcpyHostToDevice);
+    }
+    // start NUM_SLAVES workers to calculate for local summary
+
+    for (slaveCount = 0; slaveCount < NUM_SLAVES; slaveCount++) {
+        // create new stream for parallel grid execution
+        cudaStreamCreate(&streams[slaveCount]);
 
         // launch one worker(slave) kernel per stream
         slave_local<<<1, 1, 0, streams[slaveCount]>>>(partition[slaveCount], d_support, 
@@ -166,7 +172,8 @@ void master(mat S, float* pred, int* partition, mat train_data, mat train_target
     for(int i=0; i<NUM_SLAVES; i++){
         cudaStreamSynchronize(streams[i]);
     }
-    cudaDeviceSynchronize();
+    //cudaDeviceSynchronize();
+
     for (int slaveCount=0; slaveCount<NUM_SLAVES; slaveCount++){
         cudaMemcpy(local_M_arr[slaveCount], &local_M[slaveCount*(interval*1)], interval*1*s, cudaMemcpyDeviceToHost);
         cudaMemcpy(local_C_arr[slaveCount], &local_C[slaveCount*(interval*interval)], interval*interval*s, cudaMemcpyDeviceToHost);
@@ -195,6 +202,7 @@ void master(mat S, float* pred, int* partition, mat train_data, mat train_target
 
     cudaMemcpy(d_global_M, global_M, interval*NUM_FEATURES*s, cudaMemcpyHostToDevice);
     cudaMemcpy(d_global_C, global_C, interval*interval*s, cudaMemcpyHostToDevice);
+
     // calculate for final prediction
     for (slaveCount = 0; slaveCount < NUM_SLAVES; slaveCount++) {
 
@@ -210,6 +218,9 @@ void master(mat S, float* pred, int* partition, mat train_data, mat train_target
         cudaStreamSynchronize(streams[i]);
     }
     cudaDeviceSynchronize();
+
+
+
     for (int slaveCount=0; slaveCount<NUM_SLAVES; slaveCount++){
         // Copy result back to host
         cudaMemcpy(&pred[slaveCount], &d_pred_M[slaveCount*(interval)], interval*sizeof(float), cudaMemcpyDeviceToHost);
@@ -227,8 +238,10 @@ void master(mat S, float* pred, int* partition, mat train_data, mat train_target
 // main runs on CPU
 int main(void){
     // load data from csv file
-    std::string path = "data.csv";
-    mat data = parseCsvFile(path, 1000);
+    
+    clock_t start = clock();
+    std::string path = "../cpu_impl/hdb.csv";
+    mat data = parseCsvFile(path, NUM_SAMPLES);
 
     // normalise the dataset
     int rows = data.n_rows;
@@ -246,9 +259,9 @@ int main(void){
 
     // split data into training and testing samples
     int all_samples = data.n_rows;
-    mat train_data = data.rows(0, all_samples/2-1).cols(1, 8);
+    mat train_data = data.rows(0, all_samples/2-1).cols(1, 11);
     mat train_target = data.rows(0, all_samples/2-1).col(0);
-    mat test_data = data.rows(all_samples/2, all_samples-1).cols(1, 8);
+    mat test_data = data.rows(all_samples/2, all_samples-1).cols(1, 11);
     mat test_target = data.rows(all_samples/2, all_samples-1).col(0);
 
     float *pred = new float[all_samples-all_samples/2];
@@ -265,13 +278,12 @@ int main(void){
         }
     }
     // call master function (execute on CPU) to start slaves (working on GPU)
-    clock_t start = clock();
     master(support, pred, partitions, train_data, train_target, test_data, test_target, intervals);
-    clock_t end = clock();
-    double time_spent  = (double)(end-start) / CLOCKS_PER_SEC;
-    printf("Total time for %d slaves to execute %d samples: %f\n", NUM_SLAVES, NUM_SAMPLES, time_spent); 
 
     // print out predictions in pred variable
+    clock_t end = clock();
+    double time_spent= (double)(end-start) / CLOCKS_PER_SEC;
+    printf("Total time for %d slaves to execute %d samples: %f\n", NUM_SLAVES, NUM_SAMPLES, time_spent); 
     //mat pred_M = zeros<mat>(all_samples-all_samples/2, 1);
     /*
     for(int i = 0; i < (all_samples-all_samples/2); i++){
