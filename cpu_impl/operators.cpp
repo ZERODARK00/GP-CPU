@@ -1,5 +1,6 @@
 // define the basic calculation of vector and matrix
 #include "operators.hpp"
+
 using namespace arma;
 
 // formulation is $\sum_{AB}$
@@ -22,7 +23,7 @@ mat covariance(const mat A, const mat B, float (*Kernel)(mat A, mat B)){
     return(C);
 }
 
-// //formulation is $\sum_{AA|B}$
+// formulation is $\sum_{AA|B}$
 mat conditional_covariance(const mat A, const mat B, float (*Kernel)(mat A, mat B)){
     // the inputs all have the shape of (samples, features)
     mat AA = covariance(A, A, Kernel);
@@ -34,7 +35,6 @@ mat conditional_covariance(const mat A, const mat B, float (*Kernel)(mat A, mat 
 }
 
 mat parseCsvFile(std::string path, int rows) {
- 
     mat data;
     char inputFileName[20];
     strcpy(inputFileName, path.c_str());
@@ -47,7 +47,7 @@ mat parseCsvFile(std::string path, int rows) {
         if (!getline(inputFile, s)) break;
         if (s[0] != '#') {
             std::istringstream ss(s);
-             mat record;
+            mat record;
  
             while (ss) {
                 std::string line;
@@ -60,20 +60,12 @@ mat parseCsvFile(std::string path, int rows) {
                 catch (const std::invalid_argument e) {
                     mat col = ones<mat>(1,1)* 0;
                     record.insert_cols(0, col);
-                    // cout << "NaN found in file " << inputFileName << " line " << l
-                    //      << endl;
-                    // e.what();
                 }
             }
  
             data.insert_rows(0, record);
         }
     }
- 
-    // if (!inputFile.eof()) {
-    //     cerr << "Could not read file " << inputFileName << "\n";
-    //     std::__throw_invalid_argument("File not found.");
-    // }
  
     return(data);
 }

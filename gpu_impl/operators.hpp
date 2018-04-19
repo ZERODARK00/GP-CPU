@@ -2,9 +2,9 @@
 #include <armadillo>
 #include <string>
 #include <vector>
-#include <sstream> //istringstream
+#include <sstream>  //istringstream
 #include <iostream> // cout
-#include <fstream> // ifstream
+#include <fstream>  // ifstream
  
 using namespace arma;
 

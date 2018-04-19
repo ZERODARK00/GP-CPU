@@ -3,6 +3,7 @@
 
 using namespace arma;
 
+// convert matrix to float* array
 float* matToArray(mat m){
     int row = m.n_rows;
     int col = m.n_cols;
@@ -17,8 +18,8 @@ float* matToArray(mat m){
     return arr;
 }
 
+// parsing of input file function
 mat parseCsvFile(std::string path, int rows) {
-
     mat data;
     char inputFileName[20];
     strcpy(inputFileName, path.c_str());
@@ -31,7 +32,7 @@ mat parseCsvFile(std::string path, int rows) {
         if (!getline(inputFile, s)) break;
         if (s[0] != '#') {
             std::istringstream ss(s);
-             mat record;
+            mat record;
 
             while (ss) {
                 std::string line;
